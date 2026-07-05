@@ -94,8 +94,10 @@ All endpoints are served by FastAPI on Azure Container App. All query parameters
 |---|---|
 | Ingestion cadence | Weekly (TheirStack API → ADLS Gen2) |
 | Pipeline orchestration | Databricks Lakeflow Jobs |
-| Skill & cert extraction | Claude via Agent Bricks — AI reads job descriptions |
-| Role classification | Keyword match on job title (priority-ordered rule set) |
+| AI agent | Single Agent Bricks agent (Claude) handles all three extraction tasks in one pass per posting: role classification, skill extraction, and certification extraction |
+| Role classification | AI agent — reads job title, normalised title, and description; no keyword rules. Agent references `dim_roles` for valid role definitions. Unclassifiable postings → `other`, excluded from app. |
+| Skill & cert extraction | Same AI agent pass — unions structured API fields with description parse; normalises and deduplicates |
+| Agent observability | Every invocation traced via MLflow (inputs, outputs, confidence, latency). Evaluation set used to track classification quality. Confidence threshold enforced in pipeline validation task. |
 | Gold layer | Daily grain — all analytics filters applied at query time in SQL |
 | Filter cascade | `/api/filters` re-called on each dropdown change; no full page reload |
 | Trend signal | Compares occurrence % in the newer half of the selected window vs the older half |

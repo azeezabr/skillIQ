@@ -100,9 +100,11 @@ Databricks Workflow (daily, e.g. 02:00 UTC)
 | Serving | Databricks SQL Warehouse | Avoids exporting data; filter-at-query-time |
 | Date filter | Preset dropdown — 30d / 60d / 90d / 6m / 1y / 2y / all | Confirmed by revised mockup |
 | Location filter | Not exposed in UI (data retained in model for future) | Not in revised mockup |
-| Skill extraction | AI from `keyword_slugs` + `technology_slugs` | No manual seed required |
-| Cert extraction | AI from job `description` field | Only source of structured cert data |
-| Role | Dropdown (not tabs) | Confirmed by revised mockup |
+| AI agent | Single Databricks Agent Bricks agent handles role classification + skill extraction + cert extraction in one pass per posting | Monitoring, tracing, evaluation, and guardrails that a direct model call cannot provide |
+| Role classification | AI agent reads job title, normalised title, and description — no keyword rules | Keyword matching breaks on ambiguous titles; agent uses full context and is evaluable |
+| Skill extraction | AI agent unions keyword_slugs + technology_slugs + description parse | Agent normalises and deduplicates; same pass as classification |
+| Cert extraction | AI agent reads description | Only source of certification data in the payload |
+| Role selector | Dropdown (not tabs) | Confirmed by revised mockup |
 | Parallel API calls | Skills + Certs fired together on Analyze | Reduces perceived latency |
 | KPI delta | Period-over-period vs equal prior window | Matches "+12% vs previous 90 days" in mockup |
 | Auth | None — public read-only | MVP constraint |

@@ -74,23 +74,23 @@ Append-only. Never mutated after write. One row = one API response record.
 
 ### `dim_roles`
 
-Seed table — 5 roles + 1 catch-all.
+Seed table — 5 roles + 1 catch-all. Loaded once; used by the AI agent as a reference for valid role definitions. The agent reads this table at runtime so its classifications stay aligned with what the app exposes.
 
 | Column | Type | Notes |
 |---|---|---|
 | `role_id` | INT | Surrogate key |
 | `role_slug` | STRING | `data_engineer`, `data_scientist`, `ml_engineer`, `data_analyst`, `software_engineer` |
 | `display_name` | STRING | "Data Engineer" |
-| `match_keywords` | ARRAY<STRING> | Keyword list for title classification |
+| `description` | STRING | Plain-language role definition provided to the agent as context |
 | `sort_order` | INT | Dropdown display order |
 
 ```
-1  data_engineer      Data Engineer        [...]  1
-2  data_scientist     Data Scientist       [...]  2
-3  ml_engineer        ML Engineer          [...]  3
-4  data_analyst       Data Analyst         [...]  4
-5  software_engineer  Software Engineer    [...]  5
-99 other              Other                []     99
+1  data_engineer      Data Engineer        "Builds and maintains data pipelines..."   1
+2  data_scientist     Data Scientist       "Builds models and analyses data..."        2
+3  ml_engineer        ML Engineer          "Productionises ML models and infra..."     3
+4  data_analyst       Data Analyst         "Queries and visualises data for insights"  4
+5  software_engineer  Software Engineer    "Builds software products and services..."  5
+99 other              Other                ""                                          99
 ```
 
 ---
@@ -330,11 +330,17 @@ hiring_trend_signal = period-over-period % change in job_postings_count
 ## Refresh strategy
 
 ```
-Databricks Workflow (daily, ~02:00 UTC)
-  Task 1: pull_api              → append to bronze.raw_job_postings
-  Task 2: ai_extraction         → run AI on new description fields → populate bridge_job_certifications + dim_certifications
-  Task 3: build_silver_dims     → MERGE dim_companies, dim_locations, dim_skills, dim_certifications
-  Task 4: build_silver_facts    → MERGE fact_job_postings, bridges
-  Task 5: build_gold            → overwrite affected date partitions in all 3 gold tables
-  Task 6: validate              → row count + null rate checks; fail workflow on threshold breach
+Databricks Lakeflow Jobs (weekly)
+  Task 1: pull_api          → fetch from TheirStack API → land JSON in ADLS Gen2
+  Task 2: ingest_bronze     → parse JSON → append to bronze.raw_job_postings
+  Task 3: run_agent         → Databricks AI agent (Agent Bricks) processes each new posting:
+                                 (a) role classification  → role_slug per job
+                                 (b) skill extraction     → normalised skill list per job
+                                 (c) cert extraction      → certification list per job
+                              Agent output written to a staging table; traced via MLflow
+  Task 4: build_silver_dims → MERGE dim_companies, dim_locations, dim_skills, dim_certifications
+  Task 5: build_silver_facts→ MERGE fact_job_postings (including agent role_slug), bridges
+  Task 6: build_gold        → overwrite affected date partitions in all 4 gold tables
+  Task 7: validate          → row count + null rate + agent confidence checks;
+                              fail workflow if classification confidence falls below threshold
 ```

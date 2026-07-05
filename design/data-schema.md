@@ -122,31 +122,57 @@
 
 ---
 
-## Skill extraction rules
+## AI agent — extraction and classification
 
-Skills are extracted from **two structured arrays per posting**. NLP on `description` is out of scope for MVP.
+All three extraction tasks are handled by a single **Databricks AI agent** (built with Agent Bricks, powered by Claude). The agent processes each new job posting in one pass and returns a structured output covering skills, certifications, and role classification.
+
+### Why an agent, not a direct model call
+
+- **Tracing**: Every agent invocation is traced end-to-end via MLflow — inputs, outputs, token counts, and latency are recorded per posting, making debugging and auditing straightforward.
+- **Evaluation**: Agent outputs can be assessed against a labelled evaluation set to measure extraction precision/recall and classification accuracy. Quality can be tracked over time and across agent versions.
+- **Guardrails**: The agent can express low-confidence classifications (e.g. returning `other` with a reason) rather than hallucinating a role slug.
+- **Versioning**: Agent versions are deployed independently, allowing quality improvements without touching the pipeline code.
+
+### Agent inputs (per posting)
 
 ```
-job.skills = UNION(keyword_slugs, technology_slugs)
-             DEDUPLICATED per job
-             FILTERED through dim_skills (exclude non-tech slugs)
+job_title         string   — primary classification signal
+normalized_title  string   — API-provided normalisation (may be sparse)
+description       string   — full job description (truncated to token budget)
+keyword_slugs     string[] — structured skill signals from source API
+technology_slugs  string[] — structured technology signals from source API
 ```
 
-Slugs like `lead-generation`, `seo`, `social-media` are marketing terms — excluded via `dim_skills.category = 'excluded'`.
+### Agent output (structured, typed)
 
----
+```json
+{
+  "role_slug":       "data_engineer",   // one of 5 target slugs, or "other"
+  "skills":          ["python", "dbt", "apache-spark"],
+  "certifications":  ["aws-certified-data-engineer"],
+  "confidence":      0.92               // agent self-reported confidence for classification
+}
+```
 
-## Role classification
+### Task 1 — Role classification
 
-`job_title` → `role_slug` mapping (applied in Silver transformation):
+The agent reads `job_title`, `normalized_title`, and `description` and maps the posting to one of five target roles:
 
-| role_slug | Match keywords (case-insensitive, in job_title) |
+| role_slug | Examples the agent should recognise |
 |---|---|
-| `data_engineer` | data engineer, data platform engineer, data infrastructure, etl developer |
-| `data_scientist` | data scientist, data science, applied scientist |
-| `ml_engineer` | machine learning engineer, ml engineer, ai engineer, mlops engineer, applied ml |
-| `data_analyst` | data analyst, analytics engineer, business analyst, bi analyst |
-| `software_engineer` | software engineer, software developer, backend engineer, fullstack, full-stack |
+| `data_engineer` | Data Engineer, Data Platform Engineer, ETL Developer, Analytics Engineer (pipeline-focused) |
+| `data_scientist` | Data Scientist, Applied Scientist, Research Scientist |
+| `ml_engineer` | ML Engineer, Machine Learning Engineer, MLOps Engineer, AI Engineer |
+| `data_analyst` | Data Analyst, BI Analyst, Business Analyst, Analytics Engineer (reporting-focused) |
+| `software_engineer` | Software Engineer, Backend Engineer, Full-Stack Developer |
 
-Postings that match no rule → `role_slug = 'other'` (excluded from app).
-Postings matching multiple rules → first match wins (order above is priority order).
+If the agent cannot confidently assign a role → `role_slug = 'other'` (excluded from the app).
+The agent has access to `dim_roles` as a reference table so its definitions stay aligned with the app.
+
+### Task 2 — Skill extraction
+
+The agent unions `keyword_slugs` + `technology_slugs` and supplements with skills parsed from `description`. It deduplicates and normalises slugs (e.g. `postgres` → `postgresql`) and filters out non-technical terms (marketing, sales, business buzzwords).
+
+### Task 3 — Certification extraction
+
+The agent scans `description` for certification names and maps them to normalised provider + display name pairs. Source API fields do not contain certification data — description is the only input.
