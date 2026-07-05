@@ -367,6 +367,94 @@ ORDER BY 1
 
 ---
 
+### 5. `GET /api/jobs`
+
+Returns paginated job listings that a skill's stats were derived from. Queries **Silver** directly — gold is analytics-only and does not store record-level job data.
+
+#### Query parameters
+
+| Param | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `role` | string | Yes | — | |
+| `skill_slug` | string | Yes | — | e.g. `python` |
+| `date_range` | string | No | `90d` | See date range reference |
+| `industry` | string | No | `all` | |
+| `page` | int | No | `1` | |
+| `page_size` | int | No | `20` | Max 50 |
+
+#### SQL executed (against Silver)
+
+```sql
+-- Listings
+SELECT
+  f.job_id,
+  f.job_title,
+  f.seniority,
+  f.date_posted,
+  f.remote,
+  f.hybrid,
+  f.min_salary_usd,
+  f.max_salary_usd,
+  f.source_url,
+  c.name   AS company_name,
+  c.domain AS company_domain,
+  c.industry
+FROM skilliq.silver.fact_job_postings f
+JOIN skilliq.silver.bridge_job_skills bjs ON f.job_id     = bjs.job_id
+JOIN skilliq.silver.dim_skills         s  ON bjs.skill_id = s.skill_id
+JOIN skilliq.silver.dim_roles          r  ON f.role_id    = r.role_id
+JOIN skilliq.silver.dim_companies      c  ON f.company_id = c.company_id
+WHERE r.role_slug    = :role
+  AND s.slug         = :skill_slug
+  AND f.date_posted >= :current_start
+  AND (:industry = 'all' OR c.industry = :industry)
+ORDER BY f.date_posted DESC
+LIMIT :page_size OFFSET ((:page - 1) * :page_size);
+
+-- Total count (same WHERE, no ORDER/LIMIT)
+SELECT COUNT(*) AS total ...
+```
+
+#### Response body
+
+```jsonc
+{
+  "role": "data_engineer",
+  "skill": { "slug": "python", "name": "Python" },
+  "filters": { "date_range": "90d", "industry": "all" },
+  "pagination": {
+    "total": 3750,
+    "page": 1,
+    "page_size": 20,
+    "total_pages": 188
+  },
+  "jobs": [
+    {
+      "job_id": 1234,
+      "title": "Senior Data Engineer",
+      "company": "Google",
+      "company_domain": "google.com",
+      "seniority": "senior",
+      "remote": true,
+      "hybrid": false,
+      "min_salary_usd": 120000,
+      "max_salary_usd": 160000,
+      "date_posted": "2026-06-15",
+      "url": "https://..."
+    }
+  ]
+}
+```
+
+#### Error responses
+
+| Status | Condition |
+|---|---|
+| `400` | Missing `role` or `skill_slug`, invalid `date_range`, `page_size` > 50 |
+| `500` | Databricks query failure |
+
+---
+
 ## Databricks connection
 
 ```
@@ -387,3 +475,6 @@ All query parameters are **named bindings** (never string-interpolated).
 | `GET /api/skills` | 5 min (server) | `role:date_range:industry:sort:limit` |
 | `GET /api/certifications` | 5 min (server) | `role:date_range:industry:limit` |
 | `GET /api/hiring-trend` | 5 min (server) | `role:date_range:industry:granularity` |
+| `GET /api/jobs` | 2 min (server) | `role:skill_slug:date_range:industry:page:page_size` |
+
+> `/api/jobs` has a shorter TTL (2 min) because it queries Silver directly and results are paginated — a user paging through results should not get stale counts.

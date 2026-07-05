@@ -39,9 +39,10 @@ Source API (JSON)
       │  Databricks SQL Warehouse
       ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  API  (Next.js API routes)                             (4 APIs) │
+│  API  (Next.js API routes)                             (5 APIs) │
 │  GET /api/filters          GET /api/skills                      │
 │  GET /api/certifications   GET /api/hiring-trend                │
+│  GET /api/jobs  (queries Silver — job listing drill-down)       │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -193,6 +194,7 @@ One row per unique job posting. SCD Type 1 on `job_id`.
 | `_last_updated_date` | DATE | |
 
 **Partition by:** `date_posted` (year/month)
+**Z-ORDER BY:** `(role_id, date_posted)` — optimises the `/api/jobs` drill-down query
 
 ---
 
@@ -208,6 +210,7 @@ One row per (job, skill). Deduped across `keyword_slugs` and `technology_slugs`.
 | `date_posted` | DATE | Denormalised for partition pruning |
 
 **Partition by:** `date_posted`
+**Z-ORDER BY:** `(skill_id, date_posted)` — optimises the `/api/jobs` drill-down query
 
 ---
 
