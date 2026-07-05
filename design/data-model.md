@@ -39,10 +39,9 @@ Source API (JSON)
       │  Databricks SQL Warehouse
       ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  API  (Next.js API routes)                             (5 APIs) │
-│  GET /api/filters          GET /api/skills                      │
-│  GET /api/certifications   GET /api/hiring-trend                │
-│  GET /api/jobs  (queries Silver — job listing drill-down)       │
+│  API  (Next.js API routes)                             (4 APIs) │
+│  GET /api/filters (cascaded)   GET /api/skills                  │
+│  GET /api/certifications       GET /api/jobs (queries Silver)   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 

@@ -27,18 +27,39 @@ The `date_range` param is an enum shared across all endpoints:
 
 ### 1. `GET /api/filters`
 
-Populates all dropdowns on page load. Called once; cached 24h.
+Returns roles and available industries. Re-called on each filter change to cascade options. Date ranges are hardcoded in the frontend — not returned by this endpoint.
 
 #### Query parameters
-None.
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `role` | string | No | Scopes returned `industries` to those with postings for this role |
+| `industry` | string | No | Scopes returned `roles` to those with postings in this industry |
+
+#### Cascade behaviour
+
+| State | Call | `roles` returned | `industries` returned |
+|---|---|---|---|
+| Page load | `GET /api/filters` | All 5 roles | All industries |
+| Role selected | `GET /api/filters?role=data_engineer` | All 5 roles | Only industries with DE postings |
+| Industry selected | `GET /api/filters?industry=internet` | Only roles with internet postings | All industries |
 
 #### SQL executed
 
 ```sql
--- Industries
+-- Roles (scoped by industry if provided)
+SELECT DISTINCT r.role_slug, r.display_name, r.sort_order
+FROM skilliq.gold.fact_skill_daily  f
+JOIN skilliq.silver.dim_roles       r ON f.role_slug = r.role_slug
+WHERE (:industry IS NULL OR f.industry = :industry)
+  AND r.role_slug != 'other'
+ORDER BY r.sort_order;
+
+-- Industries (scoped by role if provided)
 SELECT DISTINCT industry
 FROM skilliq.gold.fact_skill_daily
-WHERE industry IS NOT NULL
+WHERE (:role IS NULL OR role_slug = :role)
+  AND industry IS NOT NULL
 ORDER BY industry;
 ```
 
@@ -53,20 +74,11 @@ ORDER BY industry;
     { "value": "data_analyst",      "label": "Data Analyst" },
     { "value": "software_engineer", "label": "Software Engineer" }
   ],
-  "date_ranges": [
-    { "value": "30d",  "label": "Last 30 Days" },
-    { "value": "60d",  "label": "Last 60 Days" },
-    { "value": "90d",  "label": "Last 90 Days" },
-    { "value": "6m",   "label": "Last 6 Months" },
-    { "value": "1y",   "label": "Last Year" },
-    { "value": "2y",   "label": "Last 2 Years" },
-    { "value": "all",  "label": "All Time" }
-  ],
   "industries": [
     { "value": "all",      "label": "All Industries" },
-    { "value": "internet", "label": "Internet" },
-    { "value": "finance",  "label": "Finance" }
-    // ...alphabetical
+    { "value": "finance",  "label": "Finance" },
+    { "value": "internet", "label": "Internet" }
+    // ...alphabetical, scoped to role if role param provided
   ]
 }
 ```
@@ -319,55 +331,7 @@ LIMIT :limit
 
 ---
 
-### 4. `GET /api/hiring-trend`
-
-Returns the time-series data for the Hiring Trend line chart.
-
-#### Query parameters
-
-| Param | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `role` | string | Yes | — | |
-| `date_range` | string | No | `90d` | |
-| `industry` | string | No | `all` | |
-| `granularity` | string | No | `daily` | `daily` \| `weekly` \| `monthly` |
-
-#### SQL executed
-
-```sql
-SELECT
-  CASE :granularity
-    WHEN 'weekly'  THEN DATE_TRUNC('week',  date_posted)
-    WHEN 'monthly' THEN DATE_TRUNC('month', date_posted)
-    ELSE                date_posted
-  END                              AS period,
-  SUM(job_postings_count)          AS postings_count,
-  SUM(open_roles_count)            AS open_roles_count
-FROM skilliq.gold.fact_role_daily
-WHERE role_slug    = :role
-  AND date_posted >= :current_start
-  AND (:industry = 'all' OR industry = :industry)
-GROUP BY 1
-ORDER BY 1
-```
-
-#### Response body
-
-```jsonc
-{
-  "role": "data_engineer",
-  "filters": { "date_range": "90d", "industry": "all", "granularity": "daily" },
-  "series": [
-    { "date": "2026-04-05", "postings_count": 42,  "open_roles_count": 38 },
-    { "date": "2026-04-06", "postings_count": 55,  "open_roles_count": 51 },
-    { "date": "2026-07-04", "postings_count": 287, "open_roles_count": 261 }
-  ]
-}
-```
-
----
-
-### 5. `GET /api/jobs`
+### 4. `GET /api/jobs`
 
 Returns paginated job listings that a skill's stats were derived from. Queries **Silver** directly — gold is analytics-only and does not store record-level job data.
 
@@ -471,10 +435,10 @@ All query parameters are **named bindings** (never string-interpolated).
 
 | Endpoint | Cache TTL | Cache key |
 |---|---|---|
-| `GET /api/filters` | 24h (CDN) | static |
+| `GET /api/filters` | 5 min (server) | `role:industry` (cascaded — not static) |
 | `GET /api/skills` | 5 min (server) | `role:date_range:industry:sort:limit` |
 | `GET /api/certifications` | 5 min (server) | `role:date_range:industry:limit` |
-| `GET /api/hiring-trend` | 5 min (server) | `role:date_range:industry:granularity` |
 | `GET /api/jobs` | 2 min (server) | `role:skill_slug:date_range:industry:page:page_size` |
 
-> `/api/jobs` has a shorter TTL (2 min) because it queries Silver directly and results are paginated — a user paging through results should not get stale counts.
+> `/api/filters` drops to 5 min (from 24h) because it is now dynamic — its response varies by cascade params.
+> `/api/jobs` has a shorter TTL (2 min) because it queries Silver directly and results are paginated.

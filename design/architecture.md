@@ -10,12 +10,11 @@ Dynamic single-page app. Analytics queries run live against a **Databricks SQL W
 │                                                     │
 │  Role dropdown → date range → industry → Analyze   │
 │       ↓                                             │
-│  4 KPI cards + Skills list + Certs + Trend chart    │
+│  4 KPI cards + Skills list + Certifications panel   │
 └─────────────────────┬───────────────────────────────┘
-                      │  GET /api/filters        (on load, 24h cache)
+                      │  GET /api/filters        (on load + each filter change for cascade)
                       │  GET /api/skills          role, date_range, industry
                       │  GET /api/certifications  role, date_range, industry
-                      │  GET /api/hiring-trend    role, date_range, industry, granularity
                       ▼
 ┌─────────────────────────────────────────────────────┐
 │            Next.js API Routes                       │
@@ -56,9 +55,9 @@ Dynamic single-page app. Analytics queries run live against a **Databricks SQL W
 ```
 Page
 ├── FilterBar
-│   ├── RoleDropdown                ← data_engineer | data_scientist | …
-│   ├── DateRangeDropdown           ← 30d | 60d | 90d | 6m | 1y | 2y | all
-│   ├── IndustryDropdown            ← all | internet | finance | …
+│   ├── RoleDropdown                ← options from /api/filters; cascades industry list
+│   ├── DateRangeDropdown           ← hardcoded: 30d | 60d | 90d | 6m | 1y | 2y | all
+│   ├── IndustryDropdown            ← options from /api/filters?role=; scoped to role
 │   └── AnalyzeButton
 ├── MetricCards
 │   ├── KPICard  (Job postings  + delta %)
@@ -67,21 +66,21 @@ Page
 │   └── KPICard  (Hiring Trend  — label + signal badge)
 ├── SkillsPanel                     ← left column
 │   ├── PanelHeader  (title + Occurrence / Trending toggle)
-│   └── SkillRow × N  (rank, name, bar, %, trend badge)
-└── RightColumn
-    ├── HiringTrendChart            ← line chart, granularity toggle (Daily/Weekly/Monthly)
-    └── CertificationsPanel
-        ├── PanelHeader  (title + View all link)
-        └── CertRow × 5  (rank, name, bar, demand badge)
+│   └── SkillRow × N  (rank, name, bar, %, trend badge; click → /api/jobs drill-down)
+└── CertificationsPanel             ← right column
+    ├── PanelHeader  (title + View all link)
+    └── CertRow × 5  (rank, name, bar, demand badge)
 ```
 
 ## Data flow — runtime
 
-1. Page loads → `GET /api/filters` → populates all three dropdowns
-2. Default state: role = Data Engineer, date_range = 90d, industry = all → fires `GET /api/skills`, `GET /api/certifications`, `GET /api/hiring-trend` in parallel
-3. User changes any filter → clicks **Analyze** → all three data endpoints re-fetched in parallel
-4. API routes check server cache (5-min TTL); on miss, query Databricks SQL Warehouse
-5. Response updates KPI cards, skills list, certifications panel, and trend chart in place
+1. Page loads → `GET /api/filters` (no params) → populates role + industry dropdowns; date range is hardcoded in UI
+2. User changes role → `GET /api/filters?role=data_engineer` → re-scopes industry dropdown to industries with DE postings
+3. User changes industry → `GET /api/filters?industry=internet` → re-scopes role dropdown to roles with internet postings
+4. User clicks **Analyze** → `GET /api/skills` + `GET /api/certifications` fired in parallel
+5. API routes check server cache; on miss, query Databricks SQL Warehouse
+6. Response updates KPI cards, skills list, and certifications panel in place
+7. User clicks a skill row → `GET /api/jobs?role=&skill_slug=&...` → opens job listing drawer/modal
 
 ## Data flow — pipeline (daily)
 
@@ -104,7 +103,7 @@ Databricks Workflow (daily, e.g. 02:00 UTC)
 | Skill extraction | AI from `keyword_slugs` + `technology_slugs` | No manual seed required |
 | Cert extraction | AI from job `description` field | Only source of structured cert data |
 | Role | Dropdown (not tabs) | Confirmed by revised mockup |
-| Parallel API calls | Skills + Certs + Hiring Trend fired together on Analyze | Reduces perceived latency |
+| Parallel API calls | Skills + Certs fired together on Analyze | Reduces perceived latency |
 | KPI delta | Period-over-period vs equal prior window | Matches "+12% vs previous 90 days" in mockup |
 | Auth | None — public read-only | MVP constraint |
 
