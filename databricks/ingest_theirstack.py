@@ -1,13 +1,13 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # TheirStack → Volume ingestion
-# MAGIC One run = one session = one new folder: `/Volumes/<catalog>/<schema>/<volume>/session_id=<id>/`
+# MAGIC One run = one session = one new folder: `/Volumes/<catalog>/<schema>/<volume>/<date>_<titles>[_<company>]_<session_id>/`
 # MAGIC
-# MAGIC **Job parameters**
-# MAGIC - `payload` – JSON search body (any TheirStack filter + `limit`), same shape the frontend sends
-# MAGIC - `catalog` / `schema` / `volume` – target volume
-# MAGIC - `secret_scope` / `secret_key` – where the TheirStack API key lives
+# MAGIC **Job parameters** (the only two)
+# MAGIC - `payload` – JSON search body: any allowed TheirStack filter, plus optional `limit` (default 25, max 500)
 # MAGIC - `session_id` – optional; blank = generate one
+# MAGIC
+# MAGIC Target volume and the API-key secret are fixed below (`CATALOG`, `SCHEMA`, `VOLUME`, `SECRET_CATALOG`, `SECRET_SCHEMA`, `SECRET_NAME`).
 
 # COMMAND ----------
 
@@ -28,25 +28,22 @@ from src.ingestion import job
 
 # COMMAND ----------
 
-dbutils.widgets.text("payload", json.dumps({
-    "posted_at_max_age_days": 1,
-    "job_location_or": [{"id": 6251999}],   # Canada
-    "job_title_or": ["Data Engineer", "Data Architect", "AI Engineer"],
-    "limit": 100,
-}))
-dbutils.widgets.text("catalog", "dev_catalog")
-dbutils.widgets.text("schema", "landing")        # TODO confirm: schema that holds the `skillediq` volume
-dbutils.widgets.text("volume", "skillediq")
-dbutils.widgets.text("secret_scope", "theirstack")
-dbutils.widgets.text("secret_key", "api_key")
+CATALOG, SCHEMA, VOLUME = "dev_catalog", "bronze", "vol-skilliq"
+# Unity Catalog secret: <catalog>.<schema>.<name>  (needs serverless env v4+ / DBR 17.3+ and READ SECRET)
+SECRET_CATALOG, SECRET_SCHEMA, SECRET_NAME = "dev_catalog", "bronze", "theirstack_api_key"
+
+dbutils.widgets.text("payload", "")
 dbutils.widgets.text("session_id", "")
 
+if not dbutils.widgets.get("payload").strip():
+    raise ValueError("`payload` parameter is required: a JSON search body, e.g. "
+                     '{"posted_at_max_age_days": 7, "job_title_or": ["data engineer"]}')
 payload = json.loads(dbutils.widgets.get("payload"))
-volume_root = "/Volumes/{}/{}/{}".format(*(dbutils.widgets.get(k) for k in ("catalog", "schema", "volume")))
-api_key = dbutils.secrets.get(dbutils.widgets.get("secret_scope"), dbutils.widgets.get("secret_key"))
+volume_root = f"/Volumes/{CATALOG}/{SCHEMA}/{VOLUME}"
+api_key = dbutils.secrets.get(catalog=SECRET_CATALOG, schema=SECRET_SCHEMA, key=SECRET_NAME)
 
 if not os.path.isdir(volume_root):
-    raise FileNotFoundError(f"Volume not found: {volume_root} — check the catalog/schema/volume parameters")
+    raise FileNotFoundError(f"Volume not found: {volume_root}")
 
 # COMMAND ----------
 

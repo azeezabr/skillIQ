@@ -6,29 +6,28 @@
 
 ```
 Frontend (user sets params → Proceed)
-   │  POST /api/ingest/sessions   { posted_at_max_age_days, job_location_or, job_title_or, limit }
+   │  Databricks Jobs API  run-now  { job_parameters: { payload: "<json>", session_id: "<id>" } }
    ▼
-FastAPI (src/ingestion)
-   │  validates + clamps params, mints session_id, returns 202 immediately
-   │  background task: page through TheirStack /v1/jobs/search
+Databricks Job  →  notebook databricks/ingest_theirstack.py
+   │  validates the payload (before any credits are spent), pages through TheirStack /v1/jobs/search,
+   │  dedupes, writes — all inside src/ingestion/job.py
    ▼
-Databricks Volume  (Files API)
-   /Volumes/<catalog>/<schema>/<volume>/session_id=<uuid>/
+Unity Catalog Volume  /Volumes/dev_catalog/bronze/vol-skilliq/<date>_<titles>[_<company>]_<session_id>/
         theirstack_page000.json   NDJSON, one raw job per line, untouched
         theirstack_page001.json
         _duplicates.json          only if duplicates were collapsed
         _manifest.json            params, counts, status, timestamps (written last)
 ```
 
-One user click = one session = one new folder. Sessions never overwrite each other, so there is no wipe/re-run logic.
+One run = one session = one new folder, so runs never overwrite each other.
 
-## Endpoints
+Folder name: `<date UTC>_<job titles>[_<company>]_<session_id>`, e.g. `2026-11-08_data-engineer+data-architect_databricks_ab12…`.
+- Titles come from `job_title_or` (`all-titles` if absent), slugged, first 3 then `+Nmore`.
+- The company part appears **only** when the payload targets companies (`company_name_*` or `company_domain_or`; opaque ids are skipped).
+- The full params are always in `_manifest.json`; the name is for humans browsing the volume.
+- To find a run by session id: match the folder ending in `_<session_id>`. The frontend can pass its own `session_id` to know which folder a run wrote; blank = generated.
 
-| Endpoint | Purpose |
-|---|---|
-| `POST /api/ingest/sessions` | Start a session. Returns `202 { session_id, status: "running", volume_path }` |
-| `GET /api/ingest/sessions/{session_id}` | Poll status: `running` / `succeeded` / `failed`, pages + records so far |
-| `GET /api/health` | Liveness |
+There is no API service: the frontend triggers the job directly and reads status from the Jobs API (run state) or the folder's `_manifest.json`.
 
 ## Request payload
 
@@ -72,19 +71,12 @@ Ways to cut credits before the call (not built yet):
 - `job_id_not` — skip IDs already landed in earlier sessions. Needs a seen-IDs store (decision pending: file in the Volume vs a Delta table).
 - A pre-flight count: `include_total_results=true` + `limit=1` costs at most 1 credit and returns `total_results`, so the frontend could show the expected cost before **Proceed**.
 
-## Config (`.env`, never committed)
+## The Databricks job
 
-`THEIRSTACK_API_KEY`, `DATABRICKS_HOST`, `DATABRICKS_TOKEN`, `DATABRICKS_CATALOG` (`dev_catalog`), `DATABRICKS_SCHEMA` (`landing` — **unconfirmed**), `DATABRICKS_VOLUME` (`skillediq`), `CORS_ORIGINS`. See `.env.example`.
+`databricks/ingest_theirstack.py` is a thin notebook around `src/ingestion/job.py`. It writes straight to `/Volumes/...` (mounted inside the workspace), so no token or Files API is involved.
 
-## Notes / limits
+Job parameters: **only** `payload` (JSON, the search body above; `limit` optional, default 25) and `session_id` (blank = generated). Volume (`dev_catalog.bronze.vol-skilliq`) and the secret (Unity Catalog secret `dev_catalog.bronze.theirstack_api_key`, read with `dbutils.secrets.get(catalog, schema, key)`; needs serverless environment v4+ and READ SECRET) are constants in the notebook.
 
-- Session status is held in memory (lost on restart) and a `_manifest.json` is the durable record once a session finishes. Fine for one API instance; revisit if the Container App scales out.
-- A failed session still writes `_manifest.json` with `status: "failed"` and any pages already landed stay in the folder.
+The task raises when the session fails, so the run shows failed and can alert. An invalid payload fails the task before any TheirStack call.
 
-## Scheduled run on Databricks
-
-`databricks/ingest_theirstack.py` is a notebook-format script that wraps `src/ingestion/job.py`. Same code path as the API (filters, limit clamp, dedup, manifest), but writes straight to `/Volumes/...` — no token or Files API needed inside the workspace.
-
-Parameters: `payload` (JSON, same shape as the frontend sends), `catalog`, `schema`, `volume`, `secret_scope`, `secret_key`, `session_id` (blank = generated). The task raises if the session fails, so the job run shows failed and alerts.
-
-TheirStack key: secret `theirstack/api_key` (`databricks secrets put-secret theirstack api_key`).
+TheirStack key: Unity Catalog secret, not a secret scope. The running identity needs `READ SECRET` on it plus `USE SCHEMA`/`USE CATALOG`.
