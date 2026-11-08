@@ -13,7 +13,6 @@ from datetime import datetime, timezone
 from .config import Settings
 from .dedupe import Deduper
 from .models import IngestRequest, SessionStatus
-from .naming import folder_name
 from .theirstack import iter_pages
 from .volume import FileWriter
 
@@ -35,7 +34,7 @@ def run(payload: dict, volume_root: str, api_key: str, session_id: str = "") -> 
     status = SessionStatus(
         session_id=session_id,
         status="running",
-        volume_path=writer.session_dir(folder_name(req, session_id)),
+        volume_path=writer.session_dir(session_id),
         params=req.model_dump(),
         started_at=_now(),
     )

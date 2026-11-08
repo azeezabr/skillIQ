@@ -116,4 +116,3 @@ All endpoints are served by FastAPI on Azure Container App. All query parameters
 | Full data model (all 14 tables) | `design/data-model.md` |
 | API contract with SQL | `design/api-contract.md` |
 | API request/response reference | `design/api-reference.md` |
-| Execution plan & phase gates | `execution/plan.md` |

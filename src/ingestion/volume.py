@@ -9,8 +9,9 @@ class FileWriter:
     def __init__(self, root: str):
         self.root = root
 
-    def session_dir(self, folder: str) -> str:
-        return f"{self.root}/{folder}"
+    def session_dir(self, session_id: str) -> str:
+        # raw/ holds landed data; _system/ (sibling, created by Auto Loader later) holds checkpoints and schemas
+        return f"{self.root}/raw/session_id={session_id}"
 
     def _put(self, path: str, text: str) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)

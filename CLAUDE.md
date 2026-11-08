@@ -13,7 +13,6 @@ Skill IQ is a single-page analytics app that shows in-demand skills derived from
 |---|---|
 | `requirements/` | PRD and user stories |
 | `design/` | Architecture, data schema, UI specs |
-| `execution/` | Implementation plan and task breakdowns |
 | `src/` | Application source (app, components, lib, data scripts) |
 | `data/raw/` | Source job posting data (original, do not modify) |
 | `data/processed/` | Transformed data ready for the app |
@@ -26,5 +25,4 @@ Skill IQ is a single-page analytics app that shows in-demand skills derived from
 
 ## Workflow conventions
 - Requirements → Design → Execution is the gate sequence; don't skip phases
-- Every non-trivial feature starts with a task in `execution/tasks/`
 - Data schema lives in `design/data-schema.md` — update it before writing any data code

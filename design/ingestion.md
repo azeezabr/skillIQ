@@ -12,7 +12,7 @@ Databricks Job  →  notebook databricks/ingest_theirstack.py
    │  validates the payload (before any credits are spent), pages through TheirStack /v1/jobs/search,
    │  dedupes, writes — all inside src/ingestion/job.py
    ▼
-Unity Catalog Volume  /Volumes/dev_catalog/bronze/vol-skilliq/<date>_<titles>[_<company>]_<session_id>/
+Unity Catalog Volume  /Volumes/dev_catalog/bronze/vol-skilliq/raw/session_id=<id>/
         theirstack_page000.json   NDJSON, one raw job per line, untouched
         theirstack_page001.json
         _duplicates.json          only if duplicates were collapsed
@@ -21,11 +21,15 @@ Unity Catalog Volume  /Volumes/dev_catalog/bronze/vol-skilliq/<date>_<titles>[_<
 
 One run = one session = one new folder, so runs never overwrite each other.
 
-Folder name: `<date UTC>_<job titles>[_<company>]_<session_id>`, e.g. `2026-11-08_data-engineer+data-architect_databricks_ab12…`.
-- Titles come from `job_title_or` (`all-titles` if absent), slugged, first 3 then `+Nmore`.
-- The company part appears **only** when the payload targets companies (`company_name_*` or `company_domain_or`; opaque ids are skipped).
-- The full params are always in `_manifest.json`; the name is for humans browsing the volume.
-- To find a run by session id: match the folder ending in `_<session_id>`. The frontend can pass its own `session_id` to know which folder a run wrote; blank = generated.
+Volume layout:
+
+```
+/Volumes/dev_catalog/bronze/vol-skilliq/
+    raw/session_id=<id>/     landed data, one folder per run (this job writes only here)
+    _system/                 reserved for Auto Loader checkpoints and schema locations (not created by this job)
+```
+
+`session_id=<id>` is a Hive-style partition folder, so Auto Loader picks `session_id` up as a column. The date, job titles and company are **not** in the folder name; they are in `_manifest.json` (`params`, `started_at`). The frontend can pass its own `session_id` and knows the exact path: `raw/session_id=<id>/`; blank = generated.
 
 There is no API service: the frontend triggers the job directly and reads status from the Jobs API (run state) or the folder's `_manifest.json`.
 

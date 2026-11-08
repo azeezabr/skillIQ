@@ -5,7 +5,6 @@ import pytest
 
 from src.ingestion import job, theirstack
 from src.ingestion.models import IngestRequest
-from src.ingestion.naming import folder_name
 
 # The example payload the frontend sends
 PAYLOAD = {
@@ -55,7 +54,7 @@ def test_each_run_gets_its_own_folder_and_session_id_can_be_supplied(tmp_path, m
     monkeypatch.setattr(theirstack, "fetch_page", fake_pages([]))
     a, b = run(tmp_path), run(tmp_path)
     assert a["volume_path"] != b["volume_path"]
-    assert run(tmp_path, session_id="from-frontend")["volume_path"].endswith("_from-frontend")
+    assert run(tmp_path, session_id="from-frontend")["volume_path"].endswith("/raw/session_id=from-frontend")
 
 
 def test_failure_is_recorded_in_manifest(tmp_path, monkeypatch):
@@ -158,27 +157,11 @@ def test_same_id_across_pages_is_dropped(tmp_path, monkeypatch):
     assert (st["records_written"], st["duplicates_dropped"]) == (3, 1)
 
 
-# ---- folder naming -------------------------------------------------------------------------------
+# ---- layout --------------------------------------------------------------------------------------
 
-def name(**filters):
-    return folder_name(IngestRequest(posted_at_max_age_days=7, **filters), "abc123", today="2026-11-08")
-
-
-def test_folder_has_date_titles_and_session_id():
-    assert name(job_title_or=["Databricks Data Engineer", "AI Engineer"]) == \
-        "2026-11-08_databricks-data-engineer+ai-engineer_abc123"
-
-
-def test_company_added_only_when_targeted():
-    assert name(job_title_or=["Data Engineer"], company_name_or=["Databricks", "Snowflake Inc."]) == \
-        "2026-11-08_data-engineer_databricks+snowflake-inc_abc123"
-    assert name(job_title_or=["Data Engineer"], company_domain_or=["databricks.com"]).endswith("_databricks-com_abc123")
-    assert name(job_title_or=["Data Engineer"], company_id_or=["x=="]) == "2026-11-08_data-engineer_abc123"
-
-
-def test_folder_name_is_safe_and_bounded():
-    n = name(job_title_or=["../../Sr. Data/Engineer (Databricks!)", "a", "b", "c", "d"])
-    assert "/" not in n and ".." not in n and "+2more" in n
-    assert len(name(job_title_or=["x" * 500])) < 100
-    assert name(job_title_or=["!!!"]) == "2026-11-08_all-titles_abc123"
-    assert name(company_name_or=["Acme"]) == "2026-11-08_all-titles_acme_abc123"
+def test_session_lands_under_raw_with_session_id_folder(tmp_path, monkeypatch):
+    monkeypatch.setattr(theirstack, "fetch_page", fake_pages([[{"id": 1}]]))
+    st = run(tmp_path, session_id="abc123")
+    assert st["volume_path"] == f"{tmp_path}/raw/session_id=abc123"
+    assert (tmp_path / "raw" / "session_id=abc123" / "_manifest.json").exists()
+    assert [p.name for p in tmp_path.iterdir()] == ["raw"]  # nothing else at the volume root

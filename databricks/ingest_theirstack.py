@@ -1,7 +1,7 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # TheirStack → Volume ingestion
-# MAGIC One run = one session = one new folder: `/Volumes/<catalog>/<schema>/<volume>/<date>_<titles>[_<company>]_<session_id>/`
+# MAGIC One run = one session = one new folder: `/Volumes/<catalog>/<schema>/<volume>/raw/session_id=<id>/`
 # MAGIC
 # MAGIC **Job parameters** (the only two)
 # MAGIC - `payload` – JSON search body: any allowed TheirStack filter, plus optional `limit` (default 25, max 500)
